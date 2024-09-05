@@ -1,0 +1,24 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Container {
+  id          String  @id
+  title       String
+  description String?
+  position    Int
+  items       Item[]
+}
+
+model Item {
+  id          String    @id
+  title       String
+  position    Int
+  container   Container @relation(fields: [containerId], references: [id])
+  containerId String
+}
