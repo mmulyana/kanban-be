@@ -3,12 +3,20 @@ const express = require('express')
 const { PrismaClient } = require('@prisma/client')
 const { body, param, validationResult } = require('express-validator')
 const { v4: uuidv4 } = require('uuid')
+const { Server } = require('socket.io')
+const http = require('http')
 
 const app = express()
 const prisma = new PrismaClient()
 
 app.use(express.json())
 app.use(cors())
+const server = http.createServer(app)
+const io = new Server(server, {
+  cors: {
+    origin: 'http://localhost:5173',
+  },
+})
 
 // Function to generate short UUID
 function generateUUID() {
@@ -251,6 +259,57 @@ app.patch('/api/containers-order-items', validate, async (req, res) => {
     res.status(500).json({ error: 'Error updating items order' })
   }
 })
+
+// SOCKET
+io.on('connection', async (socket) => {
+  socket.on('requestInitialData', async () => {
+    const containers = await prisma.container.findMany({
+      include: {
+        items: {
+          orderBy: {
+            position: 'asc',
+          },
+        },
+      },
+      orderBy: {
+        position: 'asc',
+      },
+    })
+    socket.emit('initialData', containers)
+  })
+
+  socket.on('updatedItems', async (containers) => {
+    await prisma.$transaction(async (prisma) => {
+      for (const container of containers) {
+        const { id, items } = container
+        for (const item of items) {
+          await prisma.item.update({
+            where: { id: item.id },
+            data: { position: item.position, containerId: id },
+          })
+        }
+      }
+    })
+    const newData = await prisma.container.findMany({
+      include: {
+        items: {
+          orderBy: {
+            position: 'asc',
+          },
+        },
+      },
+      orderBy: {
+        position: 'asc',
+      },
+    })
+    io.emit('dataUpdated', newData)
+  })
+
+  socket.on('disconnect', () => {
+    console.log('User disconnected')
+  })
+})
+io.listen(3001)
 
 const PORT = process.env.PORT || 3000
 app.listen(PORT, () => {
